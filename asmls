@@ -1,39 +1,41 @@
 #!/usr/bin/env bash
 
-# Скрипт для вывода содержимого Python-файлов в проекте
+# Скрипт для вывода содержимого Python-файлов в проекте с возможностью копирования в буфер
 
 show_usage() {
   cat << EOF
-Использование: $0 [OPTIONS]
+Использование: $0 [ОПЦИИ]
 
-OPTIONS:
-  -a, --all              показать содержимое всех .py-файлов (в корне и в utils)
+ОПЦИИ:
+  -a, --all              показать содержимое всех .py-файлов (по умолчанию)
   -f, --file FILE        показать содержимое конкретного файла (без или с расширением .py)
   -p, --pattern PATTERN  найти и вывести строки по шаблону во всех .py-файлах
+  -l, --level N          задать глубину рекурсии при поиске .py-файлов
+  -c, --clipboard        скопировать результат в буфер обмена (не выводить в терминал)
   -h, --help             показать эту справку
 EOF
 }
 
-# Если нет аргументов — показываем помощь
-if [[ $# -eq 0 ]]; then
-  show_usage
-  exit 1
-fi
-
 # Параметры по умолчанию
-ALL=false
+ALL=true
 FILE=""
 PATTERN=""
+LEVEL=""
+CLIPBOARD=false
 
-# Разбор опций
+# Разбор аргументов
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -a|--all)
       ALL=true; shift ;;
     -f|--file)
-      FILE="$2"; shift 2 ;;
+      FILE="$2"; ALL=false; shift 2 ;;
     -p|--pattern)
-      PATTERN="$2"; shift 2 ;;
+      PATTERN="$2"; ALL=false; shift 2 ;;
+    -l|--level)
+      LEVEL="$2"; shift 2 ;;
+    -c|--clipboard)
+      CLIPBOARD=true; shift ;;
     -h|--help)
       show_usage; exit 0 ;;
     *)
@@ -42,35 +44,51 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Если указано -p, выполняем поиск по шаблону и выходим
+# Буфер для вывода
+OUTPUT=""
+
+# Поиск по шаблону
 if [[ -n "$PATTERN" ]]; then
-  echo "Ищем вхождения '$PATTERN' в .py-файлах:"
-  grep -RIn --include="*.py" "$PATTERN" .
-  exit 0
-fi
-
-# Формируем список файлов для вывода
-FILES_TO_SHOW=()
-
-if [[ "$ALL" == true ]]; then
-  FILES_TO_SHOW+=( *.py utils/*.py )
-fi
-
-if [[ -n "$FILE" ]]; then
-  # добавляем расширение, если нужно
+  MATCHES=$(grep -RIn --include="*.py" "$PATTERN" . 2>/dev/null)
+  OUTPUT+="Ищем вхождения '$PATTERN' в .py-файлах:\n"
+  OUTPUT+="$MATCHES"
+elif [[ -n "$FILE" ]]; then
   [[ "$FILE" != *.py ]] && FILE+=".py"
   if [[ -f "$FILE" ]]; then
-    FILES_TO_SHOW+=( "$FILE" )
+    OUTPUT+="===== $FILE =====\n"
+    OUTPUT+="$(cat "$FILE")"
   else
     echo "Файл '$FILE' не найден." >&2
     exit 1
   fi
+else
+  # Рекурсивный поиск .py файлов с глубиной
+  DEPTH=""
+  [[ -n "$LEVEL" ]] && DEPTH="-maxdepth $LEVEL"
+  mapfile -t FILES < <(find . $DEPTH -type f -name "*.py" 2>/dev/null)
+
+  for f in "${FILES[@]}"; do
+    OUTPUT+="\n===== $f =====\n"
+    OUTPUT+="$(cat "$f")"
+  done
 fi
 
-# Вывод содержимого выбранных файлов
-for f in "${FILES_TO_SHOW[@]}"; do
-  echo
-  echo "===== $f ====="
-  cat "$f"
-done
-
+# Вывод или копирование
+if $CLIPBOARD; then
+  # Определяем доступную утилиту для буфера обмена
+  if command -v pbcopy &>/dev/null; then
+    printf "%b" "$OUTPUT" | pbcopy
+    echo "Результат скопирован в буфер обмена (pbcopy)."
+  elif command -v xclip &>/dev/null; then
+    printf "%b" "$OUTPUT" | xclip -selection clipboard
+    echo "Результат скопирован в буфер обмена (xclip)."
+  elif command -v xsel &>/dev/null; then
+    printf "%b" "$OUTPUT" | xsel --clipboard --input
+    echo "Результат скопирован в буфер обмена (xsel)."
+  else
+    echo "Ошибка: не найдена утилита для копирования в буфер (pbcopy, xclip, xsel)." >&2
+    exit 1
+  fi
+else
+  printf "%b\n" "$OUTPUT"
+fi
