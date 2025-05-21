@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+
+# Скрипт для вывода содержимого Python-файлов в проекте
+
+show_usage() {
+  cat << EOF
+Использование: $0 [OPTIONS]
+
+OPTIONS:
+  -a, --all              показать содержимое всех .py-файлов (в корне и в utils)
+  -f, --file FILE        показать содержимое конкретного файла (без или с расширением .py)
+  -p, --pattern PATTERN  найти и вывести строки по шаблону во всех .py-файлах
+  -h, --help             показать эту справку
+EOF
+}
+
+# Если нет аргументов — показываем помощь
+if [[ $# -eq 0 ]]; then
+  show_usage
+  exit 1
+fi
+
+# Параметры по умолчанию
+ALL=false
+FILE=""
+PATTERN=""
+
+# Разбор опций
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -a|--all)
+      ALL=true; shift ;;
+    -f|--file)
+      FILE="$2"; shift 2 ;;
+    -p|--pattern)
+      PATTERN="$2"; shift 2 ;;
+    -h|--help)
+      show_usage; exit 0 ;;
+    *)
+      echo "Неизвестный параметр: $1" >&2
+      show_usage; exit 1 ;;
+  esac
+done
+
+# Если указано -p, выполняем поиск по шаблону и выходим
+if [[ -n "$PATTERN" ]]; then
+  echo "Ищем вхождения '$PATTERN' в .py-файлах:"
+  grep -RIn --include="*.py" "$PATTERN" .
+  exit 0
+fi
+
+# Формируем список файлов для вывода
+FILES_TO_SHOW=()
+
+if [[ "$ALL" == true ]]; then
+  FILES_TO_SHOW+=( *.py utils/*.py )
+fi
+
+if [[ -n "$FILE" ]]; then
+  # добавляем расширение, если нужно
+  [[ "$FILE" != *.py ]] && FILE+=".py"
+  if [[ -f "$FILE" ]]; then
+    FILES_TO_SHOW+=( "$FILE" )
+  else
+    echo "Файл '$FILE' не найден." >&2
+    exit 1
+  fi
+fi
+
+# Вывод содержимого выбранных файлов
+for f in "${FILES_TO_SHOW[@]}"; do
+  echo
+  echo "===== $f ====="
+  cat "$f"
+done
+
